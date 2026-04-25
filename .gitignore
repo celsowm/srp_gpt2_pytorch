@@ -7,7 +7,7 @@ __pycache__/
 .mypy_cache/
 checkpoints/
 runs/
-data/
+/data/
 hf_dataset*/
 dataset_livros_ptbr/
 *.egg-info/
