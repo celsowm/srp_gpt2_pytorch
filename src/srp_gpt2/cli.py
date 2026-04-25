@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--hf-val-split", type=str, default="validation")
     train.add_argument("--hf-text-column", type=str, default="text")
     train.add_argument("--hf-cache-dir", type=Path, default=None)
-    train.add_argument("--tokenizer", choices=["byte", "gpt2"], default="gpt2")
+    train.add_argument("--tokenizer", default="ptbr")
     train.add_argument("--out-dir", type=Path, required=True)
     train.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     train.add_argument("--gpu-index", type=int, default=None)
@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     generate = subparsers.add_parser("generate", help="generate text from a checkpoint")
     generate.add_argument("--checkpoint", type=Path, required=True)
-    generate.add_argument("--tokenizer", choices=["byte", "gpt2"], default="gpt2")
+    generate.add_argument("--tokenizer", default="ptbr")
     generate.add_argument("--prompt", type=str, required=True)
     generate.add_argument("--max-new-tokens", type=int, default=100)
     generate.add_argument("--temperature", type=float, default=1.0)

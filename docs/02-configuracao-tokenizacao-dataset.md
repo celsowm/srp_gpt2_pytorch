@@ -30,103 +30,80 @@ ModelConfig(
 
 O significado principal:
 
-- `vocab_size`: quantidade de tokens possíveis.
+- `vocab_size`: quantidade de tokens possíveis. **Nota:** Se usar um tokenizador customizado, o `vocab_size` será ajustado automaticamente para bater com o vocabulário treinado.
 - `block_size`: tamanho máximo do contexto.
 - `n_layer`: número de blocos Transformer.
 - `n_head`: número de cabeças de atenção.
 - `n_embd`: tamanho do vetor interno de cada token.
-- `dropout`: regularização durante treino.
-- `bias`: se camadas lineares e LayerNorm usam bias.
-
-Um detalhe importante: `n_embd` precisa ser divisível por `n_head`. Se `n_embd=768` e `n_head=12`, cada head recebe `64` dimensões.
-
-`TrainingConfig` guarda opções do treino, como batch size, learning rate, gradient accumulation e intervalos de log/checkpoint. `DataConfig` guarda opções do dataset, como `stride`.
 
 ## Tokenização
 
-Modelos de linguagem não recebem texto cru. Eles recebem IDs inteiros.
+Modelos de linguagem não recebem texto cru. Eles recebem IDs inteiros. Diferente de outros projetos que usam bibliotecas fechadas (C++), este projeto utiliza um **motor BPE (Byte-Pair Encoding) 100% nativo em Python**, localizado em `src/srp_gpt2/data/bpe.py`.
 
-No projeto, a interface mínima fica em `src/srp_gpt2/data/tokenizer.py::TokenizerProtocol`:
+### Tokenizadores disponíveis:
 
-```python
-class TokenizerProtocol(Protocol):
-    vocab_size: int
-    eos_token_id: int | None
+1.  **`SentencePieceTokenizer`**: **(Recomendado)** Utiliza o motor BPE nativo. É a escolha didática para o projeto, permitindo ver o vocabulário "nascendo" do zero.
+2.  **`ByteTokenizer`**: Simples, sem dependências. Converte texto para bytes UTF-8 (0-255). Útil para testes rápidos e fumaça.
+3.  **`GPT2BPETokenizer`** (Legado): Usa o vocabulário original do GPT-2 via `tiktoken`.
 
-    def encode(self, text: str) -> list[int]: ...
-    def decode(self, token_ids: list[int]) -> str: ...
+### Como o BPE aprende? (O Algoritmo de Merge)
+
+O BPE segue um processo iterativo simples, mas poderoso:
+
+1.  **Inicialização**: Começamos com um vocabulário de caracteres individuais (a, b, c, d...).
+2.  **Contagem de Pares**: O algoritmo varre o texto e conta quais dois símbolos aparecem juntos com mais frequência (ex: "q" seguido de "u").
+3.  **Fusão (Merge)**: O par mais frequente é "promovido" a um novo símbolo único (ex: `q` + `u` → `qu`).
+4.  **Atualização**: Todas as ocorrências de `q` e `u` adjacentes no texto original são substituídas pelo novo símbolo `qu`.
+5.  **Repetição**: O processo volta ao passo 2 até atingir o `vocab_size` desejado.
+
+**Exemplo Prático:**
+Texto: `banana`
+- Símbolos iniciais: `b`, `a`, `n`, `a`, `n`, `a`
+- Par mais frequente: `an` (aparece 2 vezes)
+- Novo símbolo: `an`
+- Texto atualizado: `b`, `a`, `n`, `an`, `an` (considerando as fusões possíveis)
+- Próximo merge: `an` + `a` → `ana`
+
+Ao final de 32.000 iterações, o modelo terá aprendido que " que", " de", " para" e até palavras inteiras são unidades fundamentais do português, economizando processamento da GPT.
+
+### Visualizando o Treino (BPE X-Ray)
+
+Para entender como o algoritmo BPE encontra os melhores pares de caracteres para fundir, criamos uma ferramenta visual interativa:
+
+```bash
+python examples/train_tokenizer_xray.py
 ```
 
-Existem dois tokenizadores:
+### Treinando via CLI
 
-- `ByteTokenizer`: simples, sem dependências, útil para testes.
-- `GPT2BPETokenizer`: usa `tiktoken` com vocabulário GPT-2.
+Para processar grandes volumes de texto (como os 128MB de livros em PT-BR fornecidos), usamos o treinamento otimizado com suporte a heap e tabelas incrementais:
 
-O `ByteTokenizer` converte texto para bytes UTF-8. Ele tem vocabulário `257`: os valores `0..255` representam bytes, e `256` é usado como EOS, isto é, fim de texto.
+```bash
+python scripts/train_tokenizer.py --input "dataset_livros_ptbr/*.txt" --output data/tokenizer/ptbr_32k --vocab_size 32000
+```
 
-O `GPT2BPETokenizer` usa BPE, o tipo de tokenização usado pelo GPT-2 original. Ele é mais realista, mas depende de `tiktoken`.
+Isso gerará:
+- `data/tokenizer/ptbr_32k.model`: O modelo em JSON legível.
+- `data/tokenizer/ptbr_32k.vocab`: Lista humana dos tokens com seus scores.
+
+Para usar este tokenizador no treino do GPT, o CLI já habilita o atalho `ptbr` por padrão:
+
+```bash
+srp-gpt2 train --config configs/tiny.yaml --tokenizer ptbr ...
+```
 
 ## Dataset autoregressivo
 
-O dataset principal é `src/srp_gpt2/data/dataset.py::ParquetTextDataset`.
+O dataset principal é `src/srp_gpt2/data/dataset.py::ParquetTextDataset` (para uso com Hugging Face/Parquet) ou `TextFileLanguageModelDataset` (para arquivos `.txt` locais).
 
 Ele faz três tarefas:
-
-1. Carrega textos de um dataset Hugging Face ou Parquet.
-2. Tokeniza todos os textos.
+1. Carrega os textos.
+2. Tokeniza o conteúdo.
 3. Cria janelas de tamanho `block_size + 1`.
 
 Para cada janela, ele retorna:
-
 ```python
 x = chunk[:-1]
 y = chunk[1:]
 ```
-
-Se `chunk` é:
-
-```text
-[10, 20, 30, 40, 50]
-```
-
-e `block_size=4`, então:
-
-```text
-x = [10, 20, 30, 40]
-y = [20, 30, 40, 50]
-```
-
-O modelo vê `10` e tenta prever `20`; vê `10, 20` e tenta prever `30`; e assim por diante.
-
-Shapes retornados:
-
-- `x`: `[T]`
-- `y`: `[T]`
-
-Depois que o `DataLoader` junta vários exemplos:
-
-- `x`: `[B, T]`
-- `y`: `[B, T]`
-
-## Stride
-
-`stride` controla o deslocamento entre uma janela e a próxima.
-
-Com `block_size=8` e `stride=8`, as janelas não se sobrepõem. Com `stride=4`, elas se sobrepõem pela metade. Um stride menor cria mais exemplos, mas repete mais tokens entre janelas.
-
-## Relação com o treino
-
-O `Trainer` espera batches neste formato:
-
-```text
-x: [B, T]
-y: [B, T]
-```
-
-O modelo transforma `x` em logits:
-
-```text
-logits: [B, T, vocab]
-```
-
-A loss compara esses logits com `y`. Esse é o coração do treino autoregressivo.
+O modelo vê `x` e tenta prever `y`. Esse deslocamento de 1 token é o que define o treino autoregressivo (causal).

@@ -1,119 +1,44 @@
-# 04 - Atenção causal
+# 04 - Atenção Causal: O Mecanismo de Consulta
 
-Atenção é o mecanismo que permite que cada token consulte outros tokens do contexto. No GPT-2, essa consulta é causal: uma posição só pode olhar para ela mesma e para posições anteriores.
+A Atenção é o "superpoder" do Transformer. Ela permite que cada token decida quais outros tokens no contexto são relevantes para entender o presente e prever o futuro. No GPT-2, essa atenção é **Causal** (ou "mascarada"): um token só pode olhar para o passado.
 
 O código principal está em `src/srp_gpt2/model/attention.py::CausalSelfAttention`.
 
-## Entrada e saída
+## A Analogia da Biblioteca: Q, K e V
 
-A atenção recebe representações internas:
+Para entender como a atenção funciona matematicamente, imagine uma biblioteca:
 
-```text
-x: [B, T, C]
-```
+1.  **Query (Q)**: É o seu **cartão de busca**. Ele contém o que você está procurando no momento (ex: "quem é o sujeito desta frase?").
+2.  **Key (K)**: É a **etiqueta na lombada** dos livros. Cada livro na estante (contexto) oferece uma chave para ser encontrado.
+3.  **Value (V)**: É o **conteúdo do livro**. Se o seu cartão (Q) der um "match" com uma etiqueta (K), você extrai a informação (V) daquele livro.
 
-E devolve o mesmo formato:
+O modelo calcula a similaridade entre `Q` e `K` para decidir quanto de cada `V` ele deve absorver.
 
-```text
-y: [B, T, C]
-```
+## Múltiplas Heads: Os "Especialistas"
 
-Isso permite encaixar a atenção dentro de um bloco Transformer com conexão residual.
+Em vez de uma única atenção gigante, dividimos o vetor em 12 "heads" (cabeças).
+- **Por que?** Imagine 12 especialistas lendo a mesma frase.
+- O especialista 1 foca em **Gramática**.
+- O especialista 2 foca em **Entidades** (nomes de pessoas/lugares).
+- O especialista 3 foca em **Pontuação**.
+Ao final, combinamos a opinião de todos para formar a saída final.
 
-## Q, K e V
+## A Máscara Causal: "Proibido dar Spoiler"
 
-A primeira camada linear cria três versões de `x`:
+Um modelo autoregressivo como o GPT-2 deve prever o próximo token sem saber qual é. Se ele pudesse olhar para a frente durante o treino, ele simplesmente "copiaria" a resposta.
 
-```python
-qkv = self.qkv_projection(x)
-q, k, v = qkv.split(channels, dim=2)
-```
+A **Máscara Causal** é um triângulo de zeros e "menos infinito" (ou booleanos) que bloqueia a visão do futuro:
+- Na posição 5, o modelo vê as posições 0, 1, 2, 3, 4 e 5.
+- As posições 6, 7, 8... são invisíveis (mascaradas).
 
-Intuição:
+## Resumo Visual do Cálculo
 
-- `Q` ou query: o que cada posição está procurando.
-- `K` ou key: o que cada posição oferece como chave de busca.
-- `V` ou value: a informação que será combinada.
-
-Shapes antes de separar heads:
-
-```text
-q: [B, T, C]
-k: [B, T, C]
-v: [B, T, C]
-```
-
-## Múltiplas heads
-
-Em vez de fazer uma única atenção grande, o modelo divide `C` em várias heads.
-
-Com `n_embd=768` e `n_head=12`:
-
-```text
-head_dim = 768 / 12 = 64
-```
-
-Depois de `CausalSelfAttention._split_heads`, os shapes ficam:
-
-```text
-q: [B, n_head, T, head_dim]
-k: [B, n_head, T, head_dim]
-v: [B, n_head, T, head_dim]
-```
-
-Cada head aprende um tipo diferente de relação entre tokens.
-
-## Máscara causal
-
-Sem máscara, a posição 2 poderia olhar para a posição 5. Isso quebraria o treino autoregressivo, porque o modelo veria o futuro.
-
-A máscara causal tem a forma de uma matriz triangular:
-
-```text
-1 0 0 0
-1 1 0 0
-1 1 1 0
-1 1 1 1
-```
-
-O valor `1` indica atenção permitida. O valor `0` indica posição futura bloqueada.
-
-No PyTorch 2.x, o projeto usa:
-
-```python
-F.scaled_dot_product_attention(..., is_causal=True)
-```
-
-Isso delega a implementação para uma rotina otimizada. Se essa função não existir, o projeto usa `_manual_attention`, que aplica a máscara explicitamente.
-
-## Produto escalar escalado
-
-A atenção compara `q` com `k`:
-
-```text
-scores = q @ k.T
-```
-
-Depois escala por `sqrt(head_dim)`, aplica máscara, `softmax` e combina com `v`.
-
-Resultado por head:
-
-```text
-[B, n_head, T, head_dim]
-```
-
-Depois as heads são juntadas de volta:
-
-```text
-[B, T, C]
-```
-
-Por fim, `out_projection` mistura a informação das heads e retorna a saída final da atenção.
-
-## Resumo mental
+1.  **Projeção**: Criamos Q, K, V a partir da entrada.
+2.  **Scores**: Multiplicamos $Q \times K^T$ (quem combina com quem?).
+3.  **Escalonamento**: Dividimos pela raiz quadrada da dimensão (para manter os números estáveis).
+4.  **Máscara**: Zeramos as conexões com o futuro.
+5.  **Softmax**: Transformamos os scores em probabilidades que somam 100%.
+6.  **Mistura**: Multiplicamos essas probabilidades por V.
 
 Atenção causal responde à pergunta:
-
-> Para cada posição do texto, quais posições anteriores são mais úteis para prever o próximo token?
-
-Essa é a peça central que diferencia um Transformer de uma rede que olha apenas para janelas fixas ou estados recorrentes.
+> "Dado o que escrevi até agora, para onde devo olhar para decidir o que escrever a seguir?"

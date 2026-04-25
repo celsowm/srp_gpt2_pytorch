@@ -41,7 +41,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/tiny_xray/last.pt"))
     parser.add_argument("--prompt", type=str, default="O rato")
     parser.add_argument("--strategy", choices=["greedy", "sample"], default="greedy")
-    parser.add_argument("--tokenizer", choices=["gpt2", "byte-debug"], default="gpt2")
+    parser.add_argument("--tokenizer", default="gpt2")
     args = parser.parse_args()
 
     app = TransformerDesktopXray(args)
@@ -133,9 +133,8 @@ class TransformerDesktopXray(tk.Tk):
         tokenizer_combo = ttk.Combobox(
             toolbar,
             textvariable=self.tokenizer_var,
-            values=["gpt2", "byte-debug"],
+            values=["gpt2", "byte"],
             width=12,
-            state="readonly",
         )
         tokenizer_combo.grid(row=0, column=10, sticky="w")
         tokenizer_combo.bind("<<ComboboxSelected>>", lambda _event: self._on_tokenizer_change())

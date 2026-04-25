@@ -126,28 +126,31 @@ def resolve_xray_device(device: str = "auto") -> torch.device:
 
 
 def normalize_xray_tokenizer_name(tokenizer_name: str) -> str:
-    """Normalize public xray tokenizer names."""
-    normalized = tokenizer_name.strip().lower()
-    if normalized in {"gpt2", "gpt-2", "bpe"}:
+    """Normalize public xray tokenizer names or paths."""
+    normalized = tokenizer_name.strip()
+    if normalized.lower() in {"gpt2", "gpt-2", "bpe"}:
         return "gpt2"
-    if normalized in {"byte", "byte-debug", "debug"}:
-        return "byte-debug"
-    raise ValueError("--tokenizer must be one of: gpt2, byte-debug")
+    if normalized.lower() in {"byte", "byte-debug", "debug"}:
+        return "byte"
+    return normalized
 
 
 def build_xray_tokenizer(tokenizer_name: str = "gpt2") -> TokenizerProtocol:
     """Build the tokenizer used by didactic xray tools."""
     normalized = normalize_xray_tokenizer_name(tokenizer_name)
     try:
-        if normalized == "gpt2":
-            return build_tokenizer("gpt2")
-        return build_tokenizer("byte")
-    except ImportError as exc:
+        return build_tokenizer(normalized)
+    except (ImportError, FileNotFoundError) as exc:
         if normalized == "gpt2":
             raise ImportError(
                 "GPT-2 BPE tokenization requires tiktoken. Install it with: "
-                'pip install -e ".[tokenizers]". The xray app will not silently fall back '
-                "to byte-debug because that would teach a different tokenization scheme."
+                'pip install tiktoken. '
+                "The xray app will not silently fall back to byte-debug."
+            ) from exc
+        if normalized.endswith(".model") or Path(normalized).exists():
+            raise FileNotFoundError(
+                f"SentencePiece model not found at: {normalized}. "
+                "Did you run scripts/train_tokenizer.py?"
             ) from exc
         raise
 
@@ -156,7 +159,9 @@ def xray_tokenizer_label(tokenizer_name: str) -> str:
     normalized = normalize_xray_tokenizer_name(tokenizer_name)
     if normalized == "gpt2":
         return "GPT-2 BPE"
-    return "byte/debug (nao representa tokenizacao GPT)"
+    if normalized == "byte":
+        return "byte/debug (nao representa tokenizacao GPT)"
+    return f"Custom ({normalized})"
 
 
 def token_text(tokenizer: TokenizerProtocol, token_id: int) -> str:

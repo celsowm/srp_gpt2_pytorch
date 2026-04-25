@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
+
+from srp_gpt2.data.bpe import SimpleSentencePieceBPE
 
 
 class TokenizerProtocol(Protocol):
@@ -35,14 +38,18 @@ class ByteTokenizer:
 
 
 class GPT2BPETokenizer:
-    """GPT-2 byte-pair tokenizer backed by ``tiktoken``."""
+    """GPT-2 byte-pair tokenizer backed by ``tiktoken``.
+    
+    .. deprecated:: 0.1.0
+        Use :class:`SentencePieceTokenizer` for custom datasets.
+    """
 
     def __init__(self) -> None:
         try:
             import tiktoken
         except ImportError as exc:
             raise ImportError(
-                "GPT2BPETokenizer requires tiktoken. Install with: pip install -e '.[tokenizers]'"
+                "GPT2BPETokenizer requires tiktoken. Install with: pip install tiktoken"
             ) from exc
         self._encoding = tiktoken.get_encoding("gpt2")
         self.vocab_size = self._encoding.n_vocab
@@ -55,10 +62,58 @@ class GPT2BPETokenizer:
         return self._encoding.decode(token_ids)
 
 
+class SentencePieceTokenizer:
+    """Tokenizer backed by a hand-made BPE implementation.
+    
+    This implementation is fully didactic and dependency-free.
+    """
+
+    def __init__(self, model_path: str | Path) -> None:
+        path = Path(model_path)
+        if not path.exists():
+            raise FileNotFoundError(f"BPE model not found at: {path}")
+
+        self._bpe = SimpleSentencePieceBPE()
+        self._bpe.load(path)
+        self.vocab_size = self._bpe.vocab_size
+        self.eos_token_id = self._bpe.eos_id
+
+    def encode(self, text: str) -> list[int]:
+        return self._bpe.encode(text, out_type=int)
+
+    def decode(self, token_ids: list[int]) -> str:
+        return self._bpe.decode(token_ids)
+
+
 def build_tokenizer(name: str) -> TokenizerProtocol:
-    normalized = name.strip().lower()
-    if normalized == "byte":
+    normalized = name.strip()
+    
+    # Check if it's a known shortcut
+    lower_name = normalized.lower()
+    if lower_name == "byte":
         return ByteTokenizer()
-    if normalized in {"gpt2", "gpt-2", "bpe"}:
+    if lower_name in {"gpt2", "gpt-2", "bpe"}:
         return GPT2BPETokenizer()
-    raise ValueError(f"unknown tokenizer '{name}'. Use 'byte' or 'gpt2'.")
+    
+    # Check for the default custom model path
+    default_ptbr = Path("data/tokenizer/ptbr_32k.model")
+    if lower_name == "ptbr":
+        if default_ptbr.exists():
+            return SentencePieceTokenizer(default_ptbr)
+        raise FileNotFoundError(
+            f"Default PT-BR model not found at {default_ptbr}. "
+            "Train it first using 'python scripts/train_tokenizer.py'"
+        )
+
+    # Check if it's a path to a model
+    path = Path(normalized)
+    if path.exists():
+        return SentencePieceTokenizer(path)
+        
+    # Fallback to ptbr if it's the default and file exists
+    if normalized == "data/tokenizer/ptbr_32k.model" and default_ptbr.exists():
+        return SentencePieceTokenizer(default_ptbr)
+        
+    raise ValueError(
+        f"unknown tokenizer '{name}'. Use 'byte', 'gpt2', 'ptbr', or path to a .model file."
+    )

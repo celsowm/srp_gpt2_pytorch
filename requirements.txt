@@ -2,5 +2,5 @@ torch>=2.1
 pyyaml>=6.0
 tqdm>=4.66
 numpy>=1.24
-# Optional, needed for GPT-2 BPE tokenization:
-# tiktoken>=0.7
+# Optional, needed for custom BPE tokenization:
+# sentencepiece>=0.2

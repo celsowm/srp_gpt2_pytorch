@@ -1,134 +1,48 @@
-# 05 - Bloco Transformer e modelo GPT
+# 05 - Bloco Transformer: A Linha de Montagem
 
-Agora juntamos as peças: embeddings, atenção causal, MLP, normalização, cabeça de linguagem e loss.
+Agora juntamos tudo: embeddings, atenção causal, MLP e normalização. O Bloco Transformer é como uma estação em uma linha de montagem, onde a informação é refinada passo a passo.
 
 Os arquivos principais são:
+- `src/srp_gpt2/model/block.py`: A estrutura do bloco individual.
+- `src/srp_gpt2/model/gpt.py`: O "esqueleto" que empilha os blocos.
+- `src/srp_gpt2/model/loss.py`: Como o modelo sabe que errou.
 
-- `src/srp_gpt2/model/block.py`
-- `src/srp_gpt2/model/gpt.py`
-- `src/srp_gpt2/model/loss.py`
-- `src/srp_gpt2/model/init.py`
+## O Bloco: "Pre-Norm" e Conexões Residuais
 
-## Bloco Transformer
-
-`src/srp_gpt2/model/block.py::TransformerBlock` representa um bloco GPT.
-
-A estrutura é:
-
+A arquitetura do GPT-2 segue o padrão:
 ```python
 x = x + self.attention(self.ln_1(x))
 x = x + self.feed_forward(self.ln_2(x))
 ```
 
-Isso mostra três ideias importantes.
+### 1. A Rodovia de Informação (Resíduos)
+Imagine que o vetor `x` é uma **rodovia principal**. As camadas de Atenção e MLP são **vias laterais** (desvios) onde a informação é processada e depois "injetada" de volta na rodovia principal via soma (`x = x + ...`).
+- **Didática**: Isso permite que o gradiente flua sem obstáculos durante o treino, evitando que o modelo "esqueça" o que aprendeu nas camadas iniciais. Se uma camada for inútil, o modelo pode simplesmente aprender a zerar sua contribuição e a informação passa direto pela rodovia.
 
-Primeiro, existe `LayerNorm` antes da atenção e antes da MLP. Esse padrão é chamado de pre-norm.
+### 2. LayerNorm (O Estabilizador)
+O `ln_1` e `ln_2` (Layer Normalization) garantem que os números não fiquem grandes demais nem pequenos demais. No GPT-2, usamos **Pre-Norm**: normalizamos a informação **antes** dela entrar na atenção ou na MLP. Isso torna o treinamento muito mais estável em modelos profundos.
 
-Segundo, existe conexão residual. A saída da atenção é somada ao `x` original. A saída da MLP também é somada ao resultado anterior.
+## O Modelo GPT: A Pilha de Conhecimento
 
-Terceiro, o shape se mantém:
+O `GPTLanguageModel` monta a arquitetura completa:
+1.  **Entrada**: IDs de tokens viram vetores ricos + GPS de posição.
+2.  **Blocos**: Empilhamos vários blocos (ex: 12 no GPT-2 Small). Cada bloco refina a compreensão (Gramática -> Lógica -> Estilo).
+3.  **LayerNorm Final**: Um último ajuste de escala antes da saída.
+4.  **Cabeça Final (LM Head)**: Transforma o vetor abstrato de volta em um score para cada palavra do vocabulário (logits).
 
-```text
-entrada: [B, T, C]
-saida:   [B, T, C]
-```
+## Weight Tying: "O Caminho de Volta"
 
-Manter o mesmo shape permite empilhar vários blocos.
+O projeto compartilha os pesos entre o `token_embedding` e o `lm_head`.
+- **Intuição**: Se o embedding aprendeu que o vetor [0.1, 0.5...] significa "cachorro", faz sentido que a cabeça de saída use esse mesmo vetor para identificar quando o modelo quer dizer "cachorro". 
+- **Benefício**: Reduz drasticamente a memória necessária e melhora a generalização.
 
-## Modelo completo
+## A Função de Perda (Loss): O Professor
 
-`src/srp_gpt2/model/gpt.py::GPTLanguageModel` monta o modelo:
+Em `src/srp_gpt2/model/loss.py`, usamos a **Cross Entropy**.
+- O modelo tenta prever o token $T+1$ usando apenas as informações até a posição $T$.
+- O "erro" (loss) é a diferença entre a probabilidade que o modelo deu para a palavra correta e o que realmente aconteceu.
 
-```text
-input_ids
-  -> embeddings
-  -> bloco 1
-  -> bloco 2
-  -> ...
-  -> bloco N
-  -> LayerNorm final
-  -> lm_head
-  -> logits
-```
+## Inicialização e Flexibilidade
 
-Entrada:
-
-```text
-input_ids: [B, T]
-```
-
-Depois dos embeddings:
-
-```text
-x: [B, T, C]
-```
-
-Depois da cabeça final:
-
-```text
-logits: [B, T, vocab]
-```
-
-Cada posição recebe um vetor com um score para cada token possível.
-
-## Weight tying
-
-O projeto compartilha os pesos entre o embedding de tokens e a cabeça final:
-
-```python
-self.lm_head.weight = self.embeddings.token_embedding.weight
-```
-
-Isso é chamado de weight tying.
-
-Intuição:
-
-- Na entrada, a tabela transforma token ID em vetor.
-- Na saída, a cabeça compara vetores internos com os vetores dos tokens.
-
-Compartilhar os pesos reduz parâmetros e segue uma prática comum em modelos GPT.
-
-O teste `tests/test_model.py::test_weight_tying` garante que os dois módulos apontam para a mesma memória.
-
-## Loss de linguagem causal
-
-Se `targets` for passado para `GPTLanguageModel.forward`, o modelo calcula a loss:
-
-```python
-loss = causal_lm_loss(logits, targets)
-```
-
-`src/srp_gpt2/model/loss.py::causal_lm_loss` usa cross entropy.
-
-Shapes:
-
-```text
-logits:  [B, T, vocab]
-targets: [B, T]
-loss:    escalar
-```
-
-A função reorganiza os tensores para comparar cada posição com seu alvo:
-
-```text
-[B, T, vocab] -> [B*T, vocab]
-[B, T]        -> [B*T]
-```
-
-## Inicialização dos pesos
-
-`src/srp_gpt2/model/init.py::GPTWeightInitializer` inicializa `Linear` e `Embedding` com distribuição normal.
-
-Também reduz o desvio padrão de projeções ligadas ao caminho residual. Isso ajuda a manter a escala das ativações sob controle quando muitos blocos são empilhados.
-
-## Cortando o contexto
-
-`GPTLanguageModel.crop_block_size` permite reduzir `block_size` depois que o modelo já existe. Isso é útil para inferência ou ajuste com contexto menor.
-
-Ele não aumenta o contexto. A regra é:
-
-```text
-novo block_size <= block_size atual
-```
-
-Isso existe porque a tabela de posições e a máscara causal foram criadas para um tamanho máximo.
+- **Inicialização**: Em `src/srp_gpt2/model/init.py`, usamos uma técnica especial para reduzir o desvio padrão nas camadas residuais, evitando que o modelo "exploda" no início do treino.
+- **Crop Context**: O modelo pode ter seu contexto (block_size) reduzido após o treino para economizar memória em dispositivos menores, sem precisar de re-treinamento.

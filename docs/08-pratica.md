@@ -1,125 +1,74 @@
-# 08 - Prática
+# 08 - Prática: Do Texto ao Modelo
 
-Este roteiro mostra como executar o projeto em escala pequena para validar o fluxo completo.
+Neste roteiro final, vamos executar o pipeline completo de "ponta a ponta" usando apenas as ferramentas que construímos. O objetivo é validar que você agora possui um sistema de IA funcional e transparente.
 
-O objetivo não é treinar um GPT-2 bom. O objetivo é ver o pipeline funcionando:
+## O Pipeline SRP
 
-```text
-criar dados -> treinar tiny -> salvar checkpoint -> gerar texto
+O fluxo que vamos seguir é:
+1.  **Dataset**: Preparar textos em português.
+2.  **Tokenização**: Treinar o BPE "Hand-Made".
+3.  **Treino**: Ensinar a GPT-2 a prever os tokens.
+4.  **Inferência**: Gerar texto e ver o Raio-X.
+
+---
+
+## 1. Preparação (Tokenizador Customizado)
+
+Em vez de usar modelos prontos da OpenAI, vamos criar o nosso. Use o visualizador para treinar um vocabulário de 2000 tokens no dataset de livros fornecido:
+
+```bash
+python examples/train_tokenizer_xray.py
+```
+*(No app, selecione `dataset_livros_ptbr/*.txt` e clique em Start Training).*
+
+Isso criará os arquivos em `data/tokenizer/`.
+
+---
+
+## 2. Treinamento da GPT-2 Tiny
+
+Para validar o código sem precisar de um supercomputador, vamos usar a configuração `tiny`. Ela é pequena o suficiente para treinar na CPU em poucos minutos.
+
+Primeiro, prepare o dataset de fumaça (smoke test):
+```bash
+# Isso cria um arquivo Parquet pequeno para teste
+python -c "import pyarrow as pa, pyarrow.parquet as pq; table = pa.Table.from_pylist([{'text': 'O rato roeu a roupa do rei de Roma.'}] * 100); pq.write_table(table, 'hf_dataset_smoke/train.parquet')"
 ```
 
-## Instalação
-
-Crie e ative um ambiente virtual. No Windows PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[dev,hf,tokenizers]"
+Agora, dispare o treino:
+```bash
+python -m srp_gpt2.cli train \
+  --config configs/tiny.yaml \
+  --hf-dataset hf_dataset_smoke \
+  --tokenizer ptbr \
+  --out-dir checkpoints/tiny
 ```
 
-Se quiser instalar o mínimo para o exemplo byte:
+---
 
-```powershell
-pip install -e ".[dev,hf]"
+## 3. Geração e Inspeção (Raio-X)
+
+Agora que o modelo "aprendeu" o padrão do rato e do rei, vamos ver como ele pensa. Use a ferramenta de Raio-X interativo:
+
+```bash
+python examples/transformer_desktop_xray.py \
+  --checkpoint checkpoints/tiny/last.pt \
+  --tokenizer ptbr
 ```
 
-## Criar um Parquet pequeno
+**O que observar:**
+- Como o texto é quebrado em peças de BPE (subwords).
+- Quais palavras o modelo considera mais prováveis para continuar a frase.
+- O efeito da **Temperature** na barra lateral.
 
-O exemplo `examples/train_tiny.py` espera um arquivo Parquet com coluna `text`.
+---
 
-Crie um arquivo pequeno em `data/tiny.parquet`:
+## 4. Checklist Final de Maestria
 
-```powershell
-python -c "import pyarrow as pa, pyarrow.parquet as pq; table = pa.Table.from_pylist([{'text': 'O rato roeu a roupa do rei de Roma.'}, {'text': 'Transformers aprendem padrões autoregressivos.'}, {'text': 'Atenção causal impede olhar para o futuro.'}]); pq.write_table(table, 'data/tiny.parquet', compression='zstd')"
-```
+Ao concluir este projeto, você deve ser capaz de apontar no código:
+- [ ] Onde a **Atenção** impede que o modelo "veja o futuro" (`attention.py`).
+- [ ] Onde o **BPE** aprende que "qu" + "e" = "que" (`bpe.py`).
+- [ ] Onde a **Rodovia de Resíduos** permite o fluxo de gradiente (`block.py`).
+- [ ] Onde o **Amostrador** joga fora palavras improváveis (`sampler.py`).
 
-## Treinar o modelo tiny
-
-Execute:
-
-```powershell
-python examples/train_tiny.py --parquet data/tiny.parquet --out-dir checkpoints/tiny
-```
-
-Esse script usa:
-
-- `ByteTokenizer`
-- `ModelConfig` pequeno
-- `ParquetTextDataset`
-- `DataLoader`
-- `GPTLanguageModel`
-- `AdamW`
-- `WarmupCosineScheduler`
-- `Trainer`
-
-O modelo tiny é pequeno para rodar rápido. Ele serve como smoke test do pipeline.
-
-## Gerar texto
-
-Depois do treino:
-
-```powershell
-python examples/generate.py `
-  --checkpoint checkpoints/tiny/last.pt `
-  --tokenizer byte `
-  --prompt "Transformers usam atenção causal" `
-  --max-new-tokens 30 `
-  --temperature 0.6 `
-  --top-k 20 `
-  --top-p 0.85 `
-  --repetition-penalty 1.1
-```
-
-Como o dataset é minúsculo, o texto pode sair repetitivo ou estranho. Isso é esperado.
-
-## Contar parâmetros
-
-Para contar parâmetros do GPT-2 Small:
-
-```powershell
-srp-gpt2 param-count --config configs/gpt2_small.yaml
-```
-
-Esse comando instancia `GPTLanguageModel` usando a configuração YAML e imprime a contagem de parâmetros treináveis.
-
-## Treinar com dataset Hugging Face
-
-Para treino realista com tokenizador GPT-2:
-
-```powershell
-srp-gpt2 train `
-  --config configs/gpt2_small.yaml `
-  --hf-dataset celsowm/srp-gpt2-ptbr-corpus `
-  --tokenizer gpt2 `
-  --out-dir checkpoints/gpt2-small `
-  --device cuda
-```
-
-Esse treino exige GPU e tempo. Para uma máquina comum, use configs menores ou o exemplo tiny.
-
-## Gerar com checkpoint da CLI
-
-```powershell
-srp-gpt2 generate `
-  --checkpoint checkpoints/gpt2-small/last.pt `
-  --tokenizer gpt2 `
-  --prompt "Era uma vez" `
-  --max-new-tokens 120 `
-  --temperature 0.8 `
-  --top-k 50 `
-  --top-p 0.95
-```
-
-## Checklist de entendimento
-
-Ao terminar, você deve conseguir explicar:
-
-- Por que o dataset retorna `x` e `y` deslocados.
-- Por que a entrada do modelo tem shape `[B, T]`.
-- Por que os embeddings produzem `[B, T, C]`.
-- Por que a atenção precisa de máscara causal.
-- Por que os logits finais têm shape `[B, T, vocab]`.
-- Como a geração escolhe um token por vez.
-
-Se esses pontos ficaram claros, você já entendeu a espinha dorsal de um GPT-2 em PyTorch.
+**Parabéns!** Você não apenas "usou" uma IA; você construiu uma do zero, peça por peça, seguindo os princípios de Single Responsibility.
