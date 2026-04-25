@@ -1,0 +1,32 @@
+model:
+  vocab_size: 50257
+  block_size: 256
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  dropout: 0.1
+  bias: true
+
+training:
+  batch_size: 1
+  max_steps: 200000
+  gradient_accumulation_steps: 16
+  learning_rate: 0.00006
+  min_learning_rate: 0.00006
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  warmup_steps: 200
+  eval_interval: 1000
+  eval_batches: 20
+  log_interval: 10
+  save_interval: 1000
+  num_workers: 0
+  amp: true
+  compile: false
+  seed: 1337
+
+data:
+  stride: 256
+  encoding: utf-8
