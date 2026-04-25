@@ -46,6 +46,19 @@ class CausalSelfAttention(nn.Module):
         y = y.transpose(1, 2).contiguous().view(batch, time, channels)
         return self.resid_dropout(self.out_projection(y))
 
+    @torch.no_grad()
+    def attention_weights(self, x: torch.Tensor) -> torch.Tensor:
+        """Return causal attention probabilities for diagnostics."""
+        batch, time, channels = x.shape
+        qkv = self.qkv_projection(x)
+        q, k, _ = qkv.split(channels, dim=2)
+        q = self._split_heads(q, batch, time)
+        k = self._split_heads(k, batch, time)
+        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        mask = self.causal_mask[:, :, :time, :time]
+        att = att.masked_fill(mask == 0, float("-inf"))
+        return F.softmax(att, dim=-1)
+
     def _split_heads(self, x: torch.Tensor, batch: int, time: int) -> torch.Tensor:
         return x.view(batch, time, self.n_head, self.head_dim).transpose(1, 2)
 

@@ -8,10 +8,10 @@ O projeto inclui:
 - Camadas separadas por responsabilidade: embedding, atenção causal, MLP, bloco Transformer, modelo GPT.
 - Treinamento com AdamW, warmup + cosine decay, gradient accumulation, AMP opcional, gradient clipping e checkpoints.
 - Inferência com `temperature`, `top_k`, `top_p` e parada por EOS.
-- Tokenizador GPT-2 via `tiktoken` opcional e tokenizador `byte` sem dependências para testes rápidos.
+- Tokenizador GPT-2 BPE via `tiktoken` para a didática principal e tokenizador `byte` apenas para smoke/debug.
 - CLI, exemplos e testes.
 
-> Observação: esta implementação cria um modelo **no nível arquitetural GPT-2 Small**. Treinar do zero com qualidade comparável ao GPT-2 real exige corpus massivo e várias GPUs. Para validar localmente, use a configuração tiny ou byte-tokenizer.
+> Observação: esta implementação cria um modelo **no nível arquitetural GPT-2 Small**. Treinar do zero com qualidade comparável ao GPT-2 real exige corpus massivo e várias GPUs. Para validar localmente, use a configuração tiny. Para entender tokenização GPT, use o modo GPT-2 BPE; o tokenizer byte é só ferramenta técnica de teste.
 
 ## Instalação
 
@@ -21,7 +21,9 @@ source .venv/bin/activate
 pip install -e ".[dev,tokenizers,hf]"
 ```
 
-Sem `tiktoken`, ainda é possível treinar e gerar com o tokenizador byte:
+Sem `tiktoken`, ainda é possível rodar testes rápidos com o tokenizador byte, mas a
+aplicação didática de raio-x exige `.[tokenizers]` para não ensinar uma tokenização
+diferente da do GPT:
 
 ```bash
 pip install -e ".[dev]"
@@ -108,6 +110,67 @@ python examples/generate.py \
   --top-p 0.85 \
   --repetition-penalty 1.1
 ```
+
+## Raio-x interativo desktop
+
+Para abrir a janela interativa, use este launcher:
+
+```bash
+python examples/xray_desktop.py --mode train --device auto --tokenizer gpt2 --text-file data/tiny.txt
+```
+
+O app detecta `cuda`, depois `mps`/Metal, e só usa CPU se não houver acelerador.
+Ele tem `play/pause`, execução passo a passo, slider de velocidade, treino ao vivo,
+inferência ao vivo, pipeline visual do Transformer, grafo simplificado e atenção causal.
+O padrão é `--tokenizer gpt2`, que mostra BPE/subword tokens como pedaços de palavra,
+espaço + palavra e pontuação. O modo `--tokenizer byte-debug` existe só para smoke e
+é rotulado como não representativo da tokenização GPT.
+
+Para abrir direto em inferência:
+
+```bash
+python examples/xray_desktop.py \
+  --mode generate \
+  --device auto \
+  --tokenizer gpt2 \
+  --checkpoint checkpoints/tiny_xray/last.pt \
+  --prompt "O rato"
+```
+
+Os scripts `examples/train_tiny_xray.py` e `examples/generate_tiny_xray.py` são
+versões CLI para gerar logs/relatórios. Para janela desktop, use `examples/xray_desktop.py`.
+
+## Raio-x em CLI
+
+Se quiser gerar relatórios e checkpoints no terminal, use os scripts separados.
+O modo `smoke` só valida que o pipeline roda; para uma demonstração legível, use
+`overfit`:
+
+```bash
+python examples/train_tiny_xray.py --mode overfit --tokenizer gpt2 --text-file data/tiny.txt
+```
+
+Esse modo mostra tokenização, pares `x -> y`, loss, perplexity, grad norm, top
+tokens prováveis, amostras geradas e atenção causal do último token. Ele grava:
+
+- `checkpoints/tiny_xray/last.pt`
+- `checkpoints/tiny_xray/xray/events.jsonl`
+- `checkpoints/tiny_xray/xray/report.md`
+
+Depois gere texto com rastreamento token por token:
+
+```bash
+python examples/generate_tiny_xray.py \
+  --tokenizer gpt2 \
+  --checkpoint checkpoints/tiny_xray/last.pt \
+  --prompt "O rato"
+```
+
+Por padrão a geração didática usa `--strategy greedy`, para mostrar o caminho mais
+provável aprendido. Use `--strategy sample` quando quiser demonstrar aleatoriedade,
+temperature, top-k e top-p.
+
+O rastreamento fica em `checkpoints/tiny_xray/xray/generation_trace.md`.
 
 ## Treino GPT-2 Small com Parquet no Hugging Face
 
