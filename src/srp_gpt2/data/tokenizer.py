@@ -1,0 +1,64 @@
+"""Tokenizer abstractions."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol
+
+
+class TokenizerProtocol(Protocol):
+    """Minimal tokenizer interface used by datasets and generation."""
+
+    vocab_size: int
+    eos_token_id: int | None
+
+    def encode(self, text: str) -> list[int]:
+        """Convert text into token IDs."""
+
+    def decode(self, token_ids: list[int]) -> str:
+        """Convert token IDs into text."""
+
+
+@dataclass
+class ByteTokenizer:
+    """Dependency-free UTF-8 byte tokenizer for demos and tests."""
+
+    vocab_size: int = 257
+    eos_token_id: int = 256
+
+    def encode(self, text: str) -> list[int]:
+        return list(text.encode("utf-8"))
+
+    def decode(self, token_ids: list[int]) -> str:
+        data = bytes([token for token in token_ids if 0 <= token < 256])
+        return data.decode("utf-8", errors="replace")
+
+
+class GPT2BPETokenizer:
+    """GPT-2 byte-pair tokenizer backed by ``tiktoken``."""
+
+    def __init__(self) -> None:
+        try:
+            import tiktoken
+        except ImportError as exc:
+            raise ImportError(
+                "GPT2BPETokenizer requires tiktoken. Install with: pip install -e '.[tokenizers]'"
+            ) from exc
+        self._encoding = tiktoken.get_encoding("gpt2")
+        self.vocab_size = self._encoding.n_vocab
+        self.eos_token_id = self._encoding.eot_token
+
+    def encode(self, text: str) -> list[int]:
+        return self._encoding.encode(text, allowed_special={"<|endoftext|>"})
+
+    def decode(self, token_ids: list[int]) -> str:
+        return self._encoding.decode(token_ids)
+
+
+def build_tokenizer(name: str) -> TokenizerProtocol:
+    normalized = name.strip().lower()
+    if normalized == "byte":
+        return ByteTokenizer()
+    if normalized in {"gpt2", "gpt-2", "bpe"}:
+        return GPT2BPETokenizer()
+    raise ValueError(f"unknown tokenizer '{name}'. Use 'byte' or 'gpt2'.")

@@ -115,6 +115,37 @@ srp-gpt2 train \
   --device cuda
 ```
 
+## Treino com dataset Parquet no Hugging Face
+
+Instale as dependências do Hugging Face:
+
+```bash
+pip install -e ".[dev,tokenizers,hf]"
+```
+
+Autentique no servidor se o dataset for privado:
+
+```bash
+hf auth login
+```
+
+Treine sem gerar arquivos `.txt` locais:
+
+```bash
+srp-gpt2 train \
+  --config configs/gpt2_server_h100_resume_3060.yaml \
+  --hf-dataset celsowm/srp-gpt2-ptbr-corpus \
+  --tokenizer gpt2 \
+  --out-dir checkpoints/gpt2-h100 \
+  --device cuda \
+  --gpu-index 7
+```
+
+Para continuar um checkpoint feito com a config da RTX 3060, use uma config com o
+mesmo `block_size=256`, como `configs/gpt2_server_h100_resume_3060.yaml`. A config
+`configs/gpt2_server_h100.yaml` usa `block_size=1024` e deve ser usada para treino
+novo, sem retomar checkpoint de `block_size=256`.
+
 Caso queira apenas construir o modelo e contar parâmetros:
 
 ```bash
