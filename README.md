@@ -120,13 +120,18 @@ srp-gpt2 train \
   --device cuda
 ```
 
+## Dataset
+
+O corpus padrão é público no Hugging Face:
+
+- `celsowm/srp-gpt2-ptbr-corpus`: https://huggingface.co/datasets/celsowm/srp-gpt2-ptbr-corpus
+
+Fontes citadas no dataset card:
+
+- Project Gutenberg, acessado via Gutendex API: https://www.gutenberg.org/ e https://gutendex.com/
+- FineWeb2 da Hugging Face, filtrado para português/pt-BR: https://huggingface.co/datasets/HuggingFaceFW/fineweb-2
+
 ## Treino no servidor
-
-Autentique no servidor se o dataset for privado:
-
-```bash
-hf auth login
-```
 
 Treine direto do dataset Parquet no Hugging Face:
 
