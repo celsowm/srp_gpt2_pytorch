@@ -3,23 +3,11 @@ from __future__ import annotations
 import pytest
 import torch
 
-from srp_gpt2.data.dataset import HuggingFaceTextDataset, TextFileDataset
+from srp_gpt2.data.dataset import ParquetTextDataset
 from srp_gpt2.data.tokenizer import ByteTokenizer
 
 
-def test_text_file_dataset_returns_shifted_chunks(tmp_path) -> None:
-    path = tmp_path / "sample.txt"
-    path.write_text("abcdefghi", encoding="utf-8")
-
-    dataset = TextFileDataset(path, ByteTokenizer(), block_size=4, stride=4)
-
-    x, y = dataset[0]
-    assert torch.equal(y[:-1], x[1:])
-    assert x.shape == (4,)
-    assert y.shape == (4,)
-
-
-def test_hugging_face_text_dataset_loads_parquet(tmp_path) -> None:
+def test_parquet_text_dataset_loads_parquet(tmp_path) -> None:
     pa = pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")
     pytest.importorskip("datasets")
@@ -33,7 +21,7 @@ def test_hugging_face_text_dataset_loads_parquet(tmp_path) -> None:
     )
     pq.write_table(table, path)
 
-    dataset = HuggingFaceTextDataset(
+    dataset = ParquetTextDataset(
         "parquet",
         split="train",
         tokenizer=ByteTokenizer(),

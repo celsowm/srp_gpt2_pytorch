@@ -11,58 +11,8 @@ from torch.utils.data import Dataset
 from srp_gpt2.data.tokenizer import TokenizerProtocol
 
 
-class TextFileDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
-    """Text file sliced into fixed-length next-token prediction examples."""
-
-    def __init__(
-        self,
-        path: str | Path,
-        tokenizer: TokenizerProtocol,
-        block_size: int,
-        stride: int | None = None,
-        encoding: str = "utf-8",
-        append_eos: bool = True,
-    ) -> None:
-        self.path = Path(path)
-        self.tokenizer = tokenizer
-        self.block_size = block_size
-        self.stride = stride or block_size
-        self.encoding = encoding
-        self.append_eos = append_eos
-        self.tokens = self._load_tokens()
-        self.starts = self._build_starts()
-
-    def __len__(self) -> int:
-        return len(self.starts)
-
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        start = self.starts[index]
-        chunk = self.tokens[start : start + self.block_size + 1]
-        x = torch.tensor(chunk[:-1], dtype=torch.long)
-        y = torch.tensor(chunk[1:], dtype=torch.long)
-        return x, y
-
-    def _load_tokens(self) -> list[int]:
-        text = self.path.read_text(encoding=self.encoding)
-        tokens = self.tokenizer.encode(text)
-        if self.append_eos and self.tokenizer.eos_token_id is not None:
-            tokens.append(self.tokenizer.eos_token_id)
-        if len(tokens) <= self.block_size:
-            raise ValueError(
-                f"dataset has {len(tokens)} tokens, but block_size={self.block_size}; "
-                "provide more text or reduce block_size"
-            )
-        return tokens
-
-    def _build_starts(self) -> list[int]:
-        max_start = len(self.tokens) - self.block_size - 1
-        if max_start < 0:
-            return []
-        return list(range(0, max_start + 1, self.stride))
-
-
-class HuggingFaceTextDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
-    """Hugging Face dataset text column sliced into next-token examples."""
+class ParquetTextDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
+    """Parquet-backed Hugging Face dataset sliced into next-token examples."""
 
     def __init__(
         self,
@@ -103,7 +53,7 @@ class HuggingFaceTextDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
             from datasets import load_dataset
         except ImportError as exc:
             raise ImportError(
-                "HuggingFaceTextDataset requires datasets. Install with: pip install -e '.[hf]'"
+                "ParquetTextDataset requires datasets. Install with: pip install -e '.[hf]'"
             ) from exc
 
         dataset = load_dataset(

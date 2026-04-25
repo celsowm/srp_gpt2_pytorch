@@ -12,7 +12,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from srp_gpt2.config import ModelConfig, ProjectConfig
-from srp_gpt2.data.dataset import HuggingFaceTextDataset, TextFileDataset
+from srp_gpt2.data.dataset import ParquetTextDataset
 from srp_gpt2.data.tokenizer import TokenizerProtocol, build_tokenizer
 from srp_gpt2.inference.generator import TextGenerator
 from srp_gpt2.inference.sampler import SamplingConfig
@@ -35,9 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     train = subparsers.add_parser("train", help="train a GPT language model")
     train.add_argument("--config", type=Path, required=True)
-    train.add_argument("--train-text", type=Path, default=None)
-    train.add_argument("--val-text", type=Path, default=None)
-    train.add_argument("--hf-dataset", type=str, default=None)
+    train.add_argument("--hf-dataset", type=str, required=True)
     train.add_argument("--hf-train-split", type=str, default="train")
     train.add_argument("--hf-val-split", type=str, default="validation")
     train.add_argument("--hf-text-column", type=str, default="text")
@@ -168,50 +166,24 @@ def build_datasets(
     tokenizer: TokenizerProtocol,
     model_config: ModelConfig,
     project_config: ProjectConfig,
-) -> tuple[TextFileDataset | HuggingFaceTextDataset, TextFileDataset | HuggingFaceTextDataset | None]:
-    if args.hf_dataset is not None and args.train_text is not None:
-        raise ValueError("Use either --hf-dataset or --train-text, not both")
-    if args.hf_dataset is None and args.train_text is None:
-        raise ValueError("Provide --hf-dataset or --train-text")
-
-    if args.hf_dataset is not None:
-        train_dataset = HuggingFaceTextDataset(
-            args.hf_dataset,
-            split=args.hf_train_split,
-            tokenizer=tokenizer,
-            block_size=model_config.block_size,
-            stride=project_config.data.stride,
-            text_column=args.hf_text_column,
-            cache_dir=args.hf_cache_dir,
-        )
-        val_dataset = HuggingFaceTextDataset(
-            args.hf_dataset,
-            split=args.hf_val_split,
-            tokenizer=tokenizer,
-            block_size=model_config.block_size,
-            stride=project_config.data.stride,
-            text_column=args.hf_text_column,
-            cache_dir=args.hf_cache_dir,
-        )
-        return train_dataset, val_dataset
-
-    train_dataset = TextFileDataset(
-        args.train_text,
-        tokenizer,
+) -> tuple[ParquetTextDataset, ParquetTextDataset]:
+    train_dataset = ParquetTextDataset(
+        args.hf_dataset,
+        split=args.hf_train_split,
+        tokenizer=tokenizer,
         block_size=model_config.block_size,
         stride=project_config.data.stride,
-        encoding=project_config.data.encoding,
+        text_column=args.hf_text_column,
+        cache_dir=args.hf_cache_dir,
     )
-    val_dataset = (
-        TextFileDataset(
-            args.val_text,
-            tokenizer,
-            block_size=model_config.block_size,
-            stride=project_config.data.stride,
-            encoding=project_config.data.encoding,
-        )
-        if args.val_text is not None
-        else None
+    val_dataset = ParquetTextDataset(
+        args.hf_dataset,
+        split=args.hf_val_split,
+        tokenizer=tokenizer,
+        block_size=model_config.block_size,
+        stride=project_config.data.stride,
+        text_column=args.hf_text_column,
+        cache_dir=args.hf_cache_dir,
     )
     return train_dataset, val_dataset
 

@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from srp_gpt2.config import DataConfig, ModelConfig, TrainingConfig
-from srp_gpt2.data.dataset import TextFileDataset
+from srp_gpt2.data.dataset import ParquetTextDataset
 from srp_gpt2.data.tokenizer import ByteTokenizer
 from srp_gpt2.model.gpt import GPTLanguageModel
 from srp_gpt2.training.optimizer import build_adamw
@@ -19,7 +19,7 @@ from srp_gpt2.training.trainer import Trainer
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--text", type=Path, required=True)
+    parser.add_argument("--parquet", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, default=Path("checkpoints/tiny"))
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
@@ -48,11 +48,13 @@ def main() -> None:
     )
     data_config = DataConfig(stride=32)
 
-    dataset = TextFileDataset(
-        args.text,
-        tokenizer,
+    dataset = ParquetTextDataset(
+        "parquet",
+        split="train",
+        tokenizer=tokenizer,
         block_size=model_config.block_size,
         stride=data_config.stride,
+        data_files=str(args.parquet),
     )
     loader = DataLoader(dataset, batch_size=train_config.batch_size, shuffle=True, drop_last=True)
     model = GPTLanguageModel(model_config)

@@ -18,7 +18,7 @@ O projeto inclui:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,tokenizers]"
+pip install -e ".[dev,tokenizers,hf]"
 ```
 
 Sem `tiktoken`, ainda é possível treinar e gerar com o tokenizador byte:
@@ -71,22 +71,28 @@ model:
 
 Isso resulta em aproximadamente **124M parâmetros**, equivalente ao GPT-2 Small.
 
-## Treino rápido com tokenizador byte
+## Treino rápido com Parquet local
 
-Crie um arquivo pequeno:
+Crie um Parquet pequeno para smoke test:
 
 ```bash
 mkdir -p data
-cat > data/tiny.txt <<'TXT'
-O rato roeu a roupa do rei de Roma.
-Transformers aprendem padrões autoregressivos.
-TXT
+python - <<'PY'
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+table = pa.Table.from_pylist([
+    {"text": "O rato roeu a roupa do rei de Roma."},
+    {"text": "Transformers aprendem padrões autoregressivos."},
+])
+pq.write_table(table, "data/tiny.parquet", compression="zstd")
+PY
 ```
 
 Treine um modelo tiny em CPU:
 
 ```bash
-python examples/train_tiny.py --text data/tiny.txt --out-dir checkpoints/tiny
+python examples/train_tiny.py --parquet data/tiny.parquet --out-dir checkpoints/tiny
 ```
 
 Gere texto:
@@ -103,25 +109,18 @@ python examples/generate.py \
   --repetition-penalty 1.1
 ```
 
-## Treino GPT-2 Small
+## Treino GPT-2 Small com Parquet no Hugging Face
 
 ```bash
 srp-gpt2 train \
   --config configs/gpt2_small.yaml \
-  --train-text data/train.txt \
-  --val-text data/val.txt \
+  --hf-dataset celsowm/srp-gpt2-ptbr-corpus \
   --tokenizer gpt2 \
   --out-dir checkpoints/gpt2-small \
   --device cuda
 ```
 
-## Treino com dataset Parquet no Hugging Face
-
-Instale as dependências do Hugging Face:
-
-```bash
-pip install -e ".[dev,tokenizers,hf]"
-```
+## Treino no servidor
 
 Autentique no servidor se o dataset for privado:
 
@@ -129,7 +128,7 @@ Autentique no servidor se o dataset for privado:
 hf auth login
 ```
 
-Treine sem gerar arquivos `.txt` locais:
+Treine direto do dataset Parquet no Hugging Face:
 
 ```bash
 srp-gpt2 train \
