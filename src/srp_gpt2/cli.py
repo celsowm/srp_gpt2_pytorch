@@ -40,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--tokenizer", choices=["byte", "gpt2"], default="gpt2")
     train.add_argument("--out-dir", type=Path, required=True)
     train.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    train.add_argument("--gpu-index", type=int, default=None)
     train.add_argument("--resume", type=Path, default=None)
     train.set_defaults(func=train_command)
 
@@ -53,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--top-p", type=float, default=None)
     generate.add_argument("--repetition-penalty", type=float, default=1.0)
     generate.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    generate.add_argument("--gpu-index", type=int, default=None)
     generate.set_defaults(func=generate_command)
 
     params = subparsers.add_parser("param-count", help="print model parameter count")
@@ -65,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
 def train_command(args: argparse.Namespace) -> None:
     project_config = ProjectConfig.from_yaml(args.config)
     set_seed(project_config.training.seed)
+    device = resolve_device(args.device, args.gpu_index)
 
     tokenizer = build_tokenizer(args.tokenizer)
     model_config = _config_with_tokenizer_vocab(project_config.model, tokenizer.vocab_size)
@@ -126,7 +129,7 @@ def train_command(args: argparse.Namespace) -> None:
         train_config=project_config.training,
         model_config=model_config,
         out_dir=args.out_dir,
-        device=args.device,
+        device=device,
     )
     if checkpoint is not None:
         if "optimizer_state" in checkpoint:
@@ -139,12 +142,13 @@ def train_command(args: argparse.Namespace) -> None:
 
 
 def generate_command(args: argparse.Namespace) -> None:
-    checkpoint = CheckpointManager.load(args.checkpoint, map_location=args.device)
+    device = resolve_device(args.device, args.gpu_index)
+    checkpoint = CheckpointManager.load(args.checkpoint, map_location=device)
     model_config = ModelConfig(**checkpoint["model_config"])
     model = GPTLanguageModel(model_config)
     model.load_state_dict(checkpoint["model_state"])
     tokenizer = build_tokenizer(args.tokenizer)
-    generator = TextGenerator(model, tokenizer, device=args.device)
+    generator = TextGenerator(model, tokenizer, device=device)
     text = generator.generate(
         args.prompt,
         max_new_tokens=args.max_new_tokens,
@@ -169,6 +173,23 @@ def _config_with_tokenizer_vocab(model_config: ModelConfig, vocab_size: int) -> 
     if model_config.vocab_size != vocab_size:
         return replace(model_config, vocab_size=vocab_size)
     return model_config
+
+
+def resolve_device(device: str, gpu_index: int | None) -> str:
+    if gpu_index is None:
+        return device
+    if gpu_index < 0:
+        raise ValueError("--gpu-index must be >= 0")
+    if device != "cuda":
+        raise ValueError("--gpu-index can only be used with --device cuda")
+    if not torch.cuda.is_available():
+        raise ValueError("CUDA is not available")
+    if gpu_index >= torch.cuda.device_count():
+        raise ValueError(
+            f"--gpu-index {gpu_index} is out of range; "
+            f"available CUDA devices: {torch.cuda.device_count()}"
+        )
+    return f"cuda:{gpu_index}"
 
 
 def _move_optimizer_state(optimizer: torch.optim.Optimizer, device: torch.device) -> None:
