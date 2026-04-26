@@ -13,4 +13,11 @@ def causal_lm_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     if targets.ndim != 2:
         raise ValueError(f"expected targets [B, T], got {tuple(targets.shape)}")
     batch, time, vocab = logits.shape
-    return F.cross_entropy(logits.reshape(batch * time, vocab), targets.reshape(batch * time))
+    # ``ignore_index=-100`` lets callers (e.g. SFT chat datasets) zero-out the
+    # loss on prompt tokens by setting their target to -100. For plain causal
+    # pre-training no -100 ever appears, so behavior is unchanged.
+    return F.cross_entropy(
+        logits.reshape(batch * time, vocab),
+        targets.reshape(batch * time),
+        ignore_index=-100,
+    )
